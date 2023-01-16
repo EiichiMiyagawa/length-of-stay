@@ -1,0 +1,255 @@
+<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+  <title>福井県観光滞在時間（データ出典：RESAS）</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.6/dayjs.min.js"></script>
+</head><body>
+  <h1 id=title></h1>
+  <div id=divsels></div>
+  <select id="from-year"></select>年　～　<select id="to-year"></select>年
+  <div id=divpie></div>
+  <hr />
+  (<a href="https://resas.go.jp/tourism-guest/" target="_blank">data</a>, <a href="https://github.com/EiichiMiyagawa/length-of-stay" target="_blank">src on GitHub</a>)<br>
+</div>
+
+<script type="module">
+  import { ChartPie } from "https://code4fukui.github.io/chart-pie-plotly/chart-pie.js";
+  import { ChartBar } from "https://eiichimiyagawa.github.io/chart-bar-plotly/chart-bar.js";
+  import { addComma } from "https://js.sabae.cc/addComma.js";
+  
+  // iOS14以前に関する対応（top-level await未対応のため）
+  addEventListener("load", async () => {
+    title.textContent = document.title;
+    
+    const cities = {
+      "福井市": 18201,
+      "敦賀市": 18202,
+      "小浜市": 18204,
+      "大野市": 18205,
+      "勝山市": 18206,
+      "鯖江市": 18207,
+      "あわら市": 18208,
+      "越前市": 18209,
+      "坂井市": 18210,
+      "永平寺町": 18322,
+      "池田町": 18382,
+      "南越前町": 18404,
+      "越前町": 18423,
+      "美浜町": 18442,
+      "高浜町": 18481,
+      "おおい町": 18483,
+      "若狭町": 18501
+    };
+    
+    const url = "./data.json";
+    const json = await (await fetch(url)).json();
+    
+    const from = dayjs("2013/01/01");
+    const to = dayjs("2021/01/01");
+    
+    const selectFromYearElement = document.getElementById("from-year");
+    const selectToYearElement = document.getElementById("to-year");
+    for (let y = 2013; y <= 2021; y++) {
+      const option = document.createElement("option");
+      option.textContent = y;
+      option.value = y;
+      const fromOption = option.cloneNode(true);
+      const toOption = option.cloneNode(true);
+      if (from.year() == y) {
+        fromOption.selected = true;
+      }
+      if (to.year() == y) {
+        toOption.selected = true;
+      }
+      selectFromYearElement.append(fromOption);
+      selectToYearElement.append(toOption);
+    }
+    
+    // チャートの種類
+    const chartType = {
+      "pie": "円グラフ",
+      "bar": "棒グラフ"
+    };
+    
+    // 各チャートの情報
+    const charts = {
+      "性別": {
+        type: chartType["bar"]
+      },
+      "参加形態別": {
+        type: chartType["bar"]
+      },
+      "宿泊日数別": {
+        type: chartType["bar"]
+      }
+    };
+    
+    const onChangeChartSelect = (title, index, event) => {
+      charts[title]["type"] = event.target.value;
+      changeChart(title, index);
+    };
+    
+    const changeChart = (title, index) => {
+      const chartPie = document.getElementById("chart-pie" + index);
+      const chartBar = document.getElementById("chart-bar" + index);
+      
+      switch (charts[title]["type"]) {
+        case chartType["pie"]:
+        chartPie.style.display = "inline-block";
+        chartBar.style.display = "none";
+        break;
+        case chartType["bar"]:
+        chartPie.style.display = "none";
+        chartBar.style.display = "inline-block";
+        break;
+        default:
+        break;
+      }
+    };
+    
+    const show = () => {
+      divpie.innerHTML = "";
+      const json2 = json.filter((d) => {
+        const node2array = (nodes) => {
+          const res = [];
+          for (const n of nodes) {
+            res.push(n);
+          }
+          return res;
+        };
+        
+        const generateKeys = (selectedOptions) => {
+          const keys = [];
+          for (let i = 0; i < selectedOptions.length; i++) {
+            keys.push(selectedOptions[i].value);
+          }
+          // 空要素は削除
+          return keys.filter(Boolean);
+        };
+        
+        const keys = node2array(divsels.querySelectorAll("select")).map(s => [s.dataname, generateKeys(s.selectedOptions)]);
+        
+        for (const key of keys) {
+          if (key[1].length != 0) {
+            if (!key[1].includes(d[key[0]])) {
+              return false;
+            }
+          }
+        }
+        
+        return true;
+      });
+      
+      if (json2.length) {
+        const names = Object.keys(charts);
+        const from = selectFromYearElement.value;
+        const to = selectToYearElement.value;
+        names.forEach((name, index) => {
+          const json3 = json2.filter((c) => {
+            return c["sicName"] == name;
+          });
+
+          const data = {};
+          for (const j of json3) {
+            const values = j["data"];
+            values.forEach((v) => {
+              for (let y = from; y <= to; y++) {
+                if (!data[v["simcName"]]) {
+                  data[v["simcName"]] = 0;
+                }
+                
+                const yearData = v["years"].find((vy) => {
+                  return vy["year"] == y;
+                });
+                const count = yearData ? yearData["value"] : 0;
+                data[v["simcName"]] += count;
+              }
+            });
+          }
+
+          const total = data["合計"];
+          delete data["合計"];
+
+          const chartPie = new ChartPie(data);
+          chartPie.id = "chart-pie" + index;
+          const chartBar = new ChartBar(data);
+          chartBar.id = "chart-bar" + index;
+          const div2 = document.createElement("div");
+          div2.style.display = "inline-block";
+          const span = document.createElement("span");
+          span.textContent = name + ` (${addComma(total)}件)`;
+          const chartSelect = document.createElement("select");
+          chartSelect.onchange = onChangeChartSelect.bind(null, name, index);
+          for (const key in chartType) {
+            const opt = document.createElement("option");
+            opt.textContent = chartType[key];
+            if (charts[name]["type"] == chartType[key]) {
+              opt.selected = true;
+            }
+            chartSelect.appendChild(opt);
+          };
+          span.appendChild(document.createElement("br"));
+          span.appendChild(chartSelect);
+          div2.appendChild(span);
+          div2.appendChild(document.createElement("br"));
+          div2.appendChild(chartPie);
+          div2.appendChild(chartBar);
+          divpie.append(div2);
+          changeChart(name, index);
+        });
+      }
+    };
+    
+    const box = document.createElement("span");
+    box.style.display = "inline-block";
+    const span = document.createElement("span");
+    span.textContent = "市町村";
+    box.appendChild(span);
+    box.appendChild(document.createElement("br"));
+    
+    const selectCityElement = document.createElement("select");
+    selectCityElement.setAttribute("multiple", true);
+    selectCityElement.dataname = "cityName";
+    const allOption = document.createElement("option");
+    allOption.textContent = "";
+    allOption.value = "";
+    selectCityElement.appendChild(allOption);
+    Object.keys(cities).forEach((key) => {
+      const option = document.createElement("option");
+      option.textContent = key;
+      option.value = key;
+      selectCityElement.appendChild(option);
+    });
+    box.appendChild(selectCityElement);
+    divsels.appendChild(box);
+    
+    selectCityElement.onchange =  ((event) => {
+      show();
+    });
+    
+    selectFromYearElement.onchange = ((event) => {
+      show();
+    });
+    selectToYearElement.onchange = ((event) => {
+      show();
+    });
+    
+    show();
+  });
+  
+</script>
+
+<style>
+  body {
+    text-align: center;
+    font-family: sans-serif;
+  }
+  textarea {
+    width: 70vw;
+    height: 8em;
+  }
+  #divsels {
+    margin-bottom: .5em;
+  }
+  #prefbox > * {
+    margin: .5em .2em;
+  }
+</style>
